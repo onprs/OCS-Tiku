@@ -1,22 +1,20 @@
 # OCS-Tiku 开发维护约定
 
-本文件面向本项目的开发维护环境。项目独立仓库为 https://github.com/onprs/OCS-Tiku.git，默认开发分支为 `main`；`D:/Code/OCS` 的上层 Git 仓库不是本项目的推送目标。维护环境的目录和网络设置不应作为公开用户的安装前提。
+本目录是 OCS-Tiku 的 Git 根目录。项目仓库为 https://github.com/onprs/OCS-Tiku.git ，默认开发分支为 `main`。
 
-## 项目结构
+## 上游参考
 
-- `main.py` 启动本地 Uvicorn 服务并打开浏览器；`server.py` 提供 `/api/search`、静态资源及前端页面，`dashboard.py` 提供记录、统计、配置和模型测试接口。
-- `solver.py` 组织直接作答与分步作答；`preprocessor.py` 下载并识别题目图片；`models/` 定义文本和视觉模型适配器及注册表。
-- `config.py` 读取配置、环境变量覆盖，并在缺少 `config.yaml` 时生成默认配置；设置接口也会写入该文件。`store.py` 使用 SQLite 存储答题记录，`db.py` 为另一个数据库实现，修改存储逻辑时先确认实际调用入口。
-- `frontend/` 是 React、TypeScript、Vite 应用；生产构建输出到 `frontend/dist/`，由后端提供页面。`templates/` 和 `static/` 为仓库中保留的旧页面资源，修改页面前先确认当前入口。
-- `build.spec`、`build.bat` 用于 Windows 上的 PyInstaller 打包，打包前先构建前端。
+- OCS 网课助手官方代码仓库：https://github.com/ocsjs/ocsjs 。官方文档：https://docs.ocsjs.com/ 。修改 OCS 题库配置、脚本对接和请求格式时，先对照对应版本的官方仓库和文档，再验证本项目接口；不要仅凭旧实现推断当前协议。
+- OCS 官方仓库用于参考实现，不能作为本项目的推送目标。`origin` 应指向本项目仓库。
 
-## 修改与验证
+## 项目结构与验证
 
-- 后端依赖见 `requirements.txt`，前端依赖见 `frontend/package-lock.json`。在项目根目录安装 Python 依赖、进入 `frontend/` 执行 `npm ci` 和 `npm run build` 后，运行 `python main.py`；默认监听 `127.0.0.1:8000`。
-- Python 代码至少执行 `python -m compileall -q config.py dashboard.py db.py main.py preprocessor.py server.py solver.py store.py models`；前端改动执行 `npm run build` 和 `npm run lint`。现有 lint 结果必须如实记录，失败时不要宣称检查通过；涉及行为改动时补充相应测试。
-- 不将真实 API Key、`.env`、`config.yaml`、数据库、日志、下载图片、证书或本机调试产物提交到 Git。提交前检查 `.gitignore`、`git status --short`、`git diff --cached --name-only` 和暂存内容；示例配置只能使用占位值。
+- `main.go` 启动 Go 服务；`server.go` 提供题库搜索、配置、记录与静态页面接口；`solver.go`、`preprocess.go`、`model.go` 处理答题与图片；`store.go` 使用 SQLite；`config.go` 读取和保存配置。
+- `frontend/` 是 React、TypeScript、Vite 应用；生产构建输出到 `frontend/dist/`。`legacy/python/` 是旧实现归档，不参与新版启动。
+- 后端运行 `go test .` 和 `go vet .`；前端运行 `npm run build`、`npm run lint`。涉及行为修改时补充相应测试。检查结果有警告或失败时如实记录。
+- 公开安装和使用见 `README.md`。公开说明不能依赖维护者的本机路径、代理或账号。
 
-## GitHub 同步
+## 提交与同步
 
-- **每完成一批修改，都要在本项目独立仓库完成验证、核对暂存文件、提交，并推送到 GitHub 的 `origin/main`**；不要只保留本地提交，也不要把上层仓库的变更混入本项目。
-- 推送前先核对远端分支和本地状态；远端出现新提交时先同步并处理冲突，不强制推送。推送失败须保留本地提交，记录失败原因与未同步状态，不得声称已经同步。
+- 不提交真实 API Key、`.env`、`config.yaml`、数据库、日志、下载图片、证书或本机调试产物。示例配置只使用占位值。
+- 提交前检查 `.gitignore`、`git status --short`、`git diff --cached --name-only` 和暂存内容。每批修改完成后在本仓库提交并推送 `origin/main`；先核对远端状态，不强制推送。推送失败则保留本地提交并说明未同步状态。
