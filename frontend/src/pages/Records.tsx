@@ -27,7 +27,8 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
-import { Clock, HelpCircle, Bot, AlertCircle, CheckCircle } from 'lucide-react';
+import { Clock, HelpCircle, Bot, AlertCircle, CheckCircle, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 interface RecordItem {
   id: number;
@@ -56,8 +57,9 @@ interface RecordsResponse {
 
 export default function Records() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [page, setPage] = useState(1);
 
-  const { data: recordsResp, error: recordsError, isLoading: recordsLoading } = useSWR<RecordsResponse>('/api/records?page=1&limit=50', fetcher);
+  const { data: recordsResp, error: recordsError, isLoading: recordsLoading } = useSWR<RecordsResponse>(`/api/records?page=${page}&limit=50`, fetcher, { refreshInterval: 5000 });
   const recordsData = recordsResp?.records;
 
   const { data: detailData, error: detailError, isLoading: detailLoading } = useSWR<RecordItem>(
@@ -125,7 +127,7 @@ export default function Records() {
   });
 
   return (
-    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="space-y-6">
+    <motion.div initial={false} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="space-y-6">
       <div>
         <h2 className="text-3xl font-bold tracking-tight text-foreground">题库运行记录</h2>
         <p className="text-muted-foreground mt-1 text-sm">实时查看每一次的大模型解析请求与状态。</p>
@@ -196,6 +198,18 @@ export default function Records() {
           </TableBody>
         </Table>
       </Card>
+
+      <div className="flex items-center justify-between gap-4 text-sm text-muted-foreground">
+        <span>共 {recordsResp?.total ?? 0} 条记录 · 第 {page} / {recordsResp?.pages ?? 1} 页</span>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="icon" title="上一页" aria-label="上一页" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <Button variant="outline" size="icon" title="下一页" aria-label="下一页" disabled={page >= (recordsResp?.pages ?? 1)} onClick={() => setPage(p => p + 1)}>
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
 
       <Sheet open={!!selectedId} onOpenChange={(open) => !open && setSelectedId(null)}>
         <SheetContent className="w-[450px] sm:w-[540px] sm:max-w-none flex flex-col h-full border-l-border/50 glass">

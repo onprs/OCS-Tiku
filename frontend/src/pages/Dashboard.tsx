@@ -22,8 +22,8 @@ const itemVariants = {
 };
 
 export default function Dashboard() {
-  const { data: stats, error: statsError, isLoading: statsLoading } = useSWR('/api/stats', fetcher);
-  const { data: dashboardData, error: dashboardError, isLoading: dashboardLoading } = useSWR('/api/dashboard', fetcher);
+  const { data: stats, error: statsError, isLoading: statsLoading } = useSWR('/api/stats', fetcher, { refreshInterval: 5000 });
+  const { data: dashboardData, error: dashboardError, isLoading: dashboardLoading } = useSWR('/api/dashboard', fetcher, { refreshInterval: 5000 });
 
   // New hooks for OCS Config Panel
   const { data: configData, error: configError } = useSWR('/api/config', fetcher);
@@ -53,14 +53,14 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-8">
-      <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.5 }}>
+      <motion.div animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.5 }}>
         <h2 className="text-3xl font-bold tracking-tight text-foreground flex items-center gap-2">
           欢迎回来, 探索数据 <span className="animate-bounce">👋</span>
         </h2>
         <p className="text-muted-foreground mt-1 text-sm">这里是 OCS 题库的运行概览与大模型解析数据统计。</p>
       </motion.div>
 
-      <motion.div variants={containerVariants} initial="hidden" animate="show" className="grid gap-6 md:grid-cols-3">
+      <motion.div variants={containerVariants} initial={false} animate="show" className="grid gap-6 md:grid-cols-3">
         <motion.div variants={itemVariants}>
           <Card className="glass relative overflow-hidden group hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
             <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-bl-full -mr-16 -mt-16 transition-transform group-hover:scale-110 duration-500"></div>
@@ -140,7 +140,7 @@ export default function Dashboard() {
       </motion.div>
 
       {/* OCS Config Panel */}
-      <motion.div variants={itemVariants} initial="hidden" animate="show" transition={{ delay: 0.25 }}>
+      <motion.div variants={itemVariants} initial={false} animate="show" transition={{ delay: 0.25 }}>
         <Card className="glass border-border/50 hover:shadow-md transition-all duration-300 overflow-hidden">
           <CardHeader 
             className="flex flex-row items-center justify-between cursor-pointer bg-muted/30 hover:bg-muted/50 transition-colors py-4"
@@ -196,7 +196,7 @@ export default function Dashboard() {
         </Card>
       </motion.div>
 
-      <motion.div variants={itemVariants} initial="hidden" animate="show" transition={{ delay: 0.3 }}>
+      <motion.div variants={itemVariants} initial={false} animate="show" transition={{ delay: 0.3 }}>
         <Card className="glass border-border/50 hover:shadow-md transition-shadow duration-300">
           <CardHeader>
             <CardTitle className="text-xl flex items-center gap-2">

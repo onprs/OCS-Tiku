@@ -1,9 +1,11 @@
+import { lazy } from "react";
 import { Routes, Route } from "react-router-dom";
 import { MainLayout } from "./components/layout/MainLayout";
-import Dashboard from "./pages/Dashboard";
-import Records from "./pages/Records";
-import Settings from "./pages/Settings";
 import { Toaster } from "@/components/ui/toaster";
+
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Records = lazy(() => import("./pages/Records"));
+const Settings = lazy(() => import("./pages/Settings"));
 
 function App() {
   return (

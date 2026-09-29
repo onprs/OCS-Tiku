@@ -1,4 +1,5 @@
 import { Outlet, Link, useLocation } from "react-router-dom";
+import { Suspense } from "react";
 import { LayoutDashboard, FileText, Settings, Sparkles } from "lucide-react";
 import { motion } from "framer-motion";
 import {
@@ -107,7 +108,9 @@ export function MainLayout() {
           
           <main className="flex-1 p-6 lg:p-8 overflow-x-hidden overflow-y-auto">
             <div className="mx-auto max-w-6xl">
-              <Outlet />
+              <Suspense fallback={<div role="status" className="p-8 text-sm text-muted-foreground">加载中...</div>}>
+                <Outlet />
+              </Suspense>
             </div>
           </main>
         </div>

@@ -7,6 +7,9 @@ node_modules/
 build/
 dist/
 *.spec.bak
+/ocs-tiku
+/ocs-tiku.exe
+/coverage.out
 
 # 运行时配置、答题记录和下载图片
 config.yaml

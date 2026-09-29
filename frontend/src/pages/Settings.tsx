@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import axios from "axios";
 import useSWR from "swr";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -10,7 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Save, PlugZap, MessageSquareText, Image as ImageIcon, Search } from "lucide-react";
 import { motion } from "framer-motion";
 
-const fetcher = (url: string) => axios.get(url).then(res => res.data);
+import { api, fetcher } from "@/lib/api";
 
 type ConfigType = {
   provider?: string;
@@ -18,14 +18,14 @@ type ConfigType = {
   api_key?: string;
   model?: string;
   reasoning_effort?: string;
-  [key: string]: any;
+  [key: string]: string | undefined;
 };
 
 type AnswerConfigType = {
   mode?: string;
   temperature?: number;
   system_prompt?: string;
-  [key: string]: any;
+  [key: string]: string | number | undefined;
 };
 
 type SettingsData = {
@@ -36,6 +36,10 @@ type SettingsData = {
   vision_providers: string[];
 };
 
+function errorDescription(err: unknown) {
+  return axios.isAxiosError<{ error?: string }>(err) ? err.response?.data?.error || err.message : "未知错误";
+}
+
 export default function Settings() {
   const { data, error, isLoading, mutate } = useSWR<SettingsData>("/api/settings", fetcher);
 
@@ -43,21 +47,22 @@ export default function Settings() {
   if (error) return <div className="p-8 text-destructive">加载配置失败</div>;
 
   return (
-    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="space-y-6 max-w-4xl">
+    <motion.div initial={false} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="w-full min-w-0 space-y-6 max-w-4xl">
       <div>
         <h2 className="text-3xl font-bold tracking-tight text-foreground">系统设置</h2>
         <p className="text-muted-foreground mt-1 text-sm">配置大语言模型、视觉模型以及底层搜题引擎的 API 密钥及端点。</p>
       </div>
 
-      <Tabs defaultValue="text" className="w-full">
-        <TabsList className="grid w-full grid-cols-3 mb-6 p-1 bg-muted/50 rounded-xl">
-          <TabsTrigger value="text" className="rounded-lg data-[state=active]:shadow-sm"><MessageSquareText className="w-4 h-4 mr-2" />文本大模型</TabsTrigger>
-          <TabsTrigger value="vision" className="rounded-lg data-[state=active]:shadow-sm"><ImageIcon className="w-4 h-4 mr-2" />视觉模型</TabsTrigger>
-          <TabsTrigger value="answer" className="rounded-lg data-[state=active]:shadow-sm"><Search className="w-4 h-4 mr-2" />答题设置</TabsTrigger>
+      <Tabs defaultValue="text" className="w-full min-w-0">
+        <TabsList className="grid w-full min-w-0 grid-cols-3 mb-6 p-1 bg-muted/50 rounded-xl">
+          <TabsTrigger value="text" className="min-w-0 px-1 text-xs sm:px-3 sm:text-sm rounded-lg data-[state=active]:shadow-sm"><MessageSquareText className="hidden sm:block w-4 h-4 mr-2" />文本大模型</TabsTrigger>
+          <TabsTrigger value="vision" className="min-w-0 px-1 text-xs sm:px-3 sm:text-sm rounded-lg data-[state=active]:shadow-sm"><ImageIcon className="hidden sm:block w-4 h-4 mr-2" />视觉模型</TabsTrigger>
+          <TabsTrigger value="answer" className="min-w-0 px-1 text-xs sm:px-3 sm:text-sm rounded-lg data-[state=active]:shadow-sm"><Search className="hidden sm:block w-4 h-4 mr-2" />答题设置</TabsTrigger>
         </TabsList>
 
         <TabsContent value="text" className="focus-visible:outline-none focus-visible:ring-0">
           <ConfigForm
+            key={JSON.stringify(data?.text)}
             type="text"
             title="文本大模型配置 (Text Model)"
             description="用于提取纯文本题目和选项的结构化答案。推荐使用 DeepSeek、OpenAI 等标准接口。"
@@ -69,6 +74,7 @@ export default function Settings() {
         </TabsContent>
         <TabsContent value="vision" className="focus-visible:outline-none focus-visible:ring-0">
           <ConfigForm
+            key={JSON.stringify(data?.vision)}
             type="vision"
             title="视觉模型配置 (Vision Model)"
             description="当题目包含图片时，调用支持视觉能力的大模型（如 GPT-4o, Qwen-VL）进行图片阅读与答题。"
@@ -80,6 +86,7 @@ export default function Settings() {
         </TabsContent>
         <TabsContent value="answer" className="focus-visible:outline-none focus-visible:ring-0">
           <AnswerConfigForm
+            key={JSON.stringify(data?.answer)}
             initialData={data?.answer}
             onSaved={mutate}
           />
@@ -111,10 +118,6 @@ function ConfigForm({
   const [isTesting, setIsTesting] = useState(false);
   const { toast } = useToast();
 
-  useEffect(() => {
-    if (initialData) setFormData(initialData);
-  }, [initialData]);
-
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
   };
@@ -122,18 +125,18 @@ function ConfigForm({
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      await axios.put(`/api/settings/${type}`, formData);
+      await api.put(`/api/settings/${type}`, formData);
       toast({
         title: "保存成功",
         description: "配置信息已成功更新并生效。",
         className: "bg-emerald-50 text-emerald-900 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-100 dark:border-emerald-900",
       });
       onSaved();
-    } catch (err: any) {
+    } catch (err: unknown) {
       toast({
         variant: "destructive",
         title: "保存失败",
-        description: err.response?.data?.error || err.message,
+        description: errorDescription(err),
       });
     } finally {
       setIsSaving(false);
@@ -143,7 +146,7 @@ function ConfigForm({
   const handleTest = async () => {
     setIsTesting(true);
     try {
-      const res = await axios.get(`/api/test-${type}`);
+      const res = await api.get(`/api/test-${type}`);
       if (res.data?.ok === false) {
         toast({
           variant: "destructive",
@@ -157,11 +160,11 @@ function ConfigForm({
         description: "模型可以正常连接并返回期望的结果。",
         className: "bg-emerald-50 text-emerald-900 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-100 dark:border-emerald-900",
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       toast({
         variant: "destructive",
         title: "测试失败",
-        description: err.response?.data?.error || err.message,
+        description: axios.isAxiosError<{ error?: string }>(err) ? err.response?.data?.error || err.message : "未知错误",
       });
     } finally {
       setIsTesting(false);
@@ -276,10 +279,6 @@ function AnswerConfigForm({
   const [isSaving, setIsSaving] = useState(false);
   const { toast } = useToast();
 
-  useEffect(() => {
-    if (initialData) setFormData(initialData);
-  }, [initialData]);
-
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const val = e.target.name === "temperature" ? parseFloat(e.target.value) || 0 : e.target.value;
     setFormData(prev => ({ ...prev, [e.target.name]: val }));
@@ -288,18 +287,18 @@ function AnswerConfigForm({
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      await axios.put(`/api/settings/answer`, formData);
+      await api.put(`/api/settings/answer`, formData);
       toast({
         title: "保存成功",
         description: "答题设置已成功更新并生效。",
         className: "bg-emerald-50 text-emerald-900 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-100 dark:border-emerald-900",
       });
       onSaved();
-    } catch (err: any) {
+    } catch (err: unknown) {
       toast({
         variant: "destructive",
         title: "保存失败",
-        description: err.response?.data?.error || err.message,
+        description: errorDescription(err),
       });
     } finally {
       setIsSaving(false);
