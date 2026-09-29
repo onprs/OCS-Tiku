@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+    <h1>⚙️ 模型设置</h1>
+    <span class="subtitle">切换模型后自动生效，无需重启</span>
+</div>
+
+<div class="grid-2col">
+    <div class="card">
+        <div class="card-header">📝 文本模型</div>
+        <div class="card-body">
+            <form id="form-text" onsubmit="saveText(event)">
+                <label>Provider</label>
+                <select name="provider" class="form-control">
+                    {% for p in text_providers %}
+                    <option value="{{ p }}" {% if p == text_cfg.provider %}selected{% endif %}>{{ p }}</option>
+                    {% endfor %}
+                </select>
+                <label>Model</label>
+                <input name="model" class="form-control" value="{{ text_cfg.model }}" placeholder="model name">
+                <label>API Key</label>
+                <input name="api_key" class="form-control" type="password" value="{{ text_cfg.api_key }}" placeholder="sk-xxx">
+                <label>Base URL</label>
+                <input name="base_url" class="form-control" value="{{ text_cfg.base_url }}" placeholder="https://api.xxx.com/v1">
+                <div id="reasoning-effort-group" {% if text_cfg.provider != 'deepseek' %}style="display:none"{% endif %}>
+                <label>推理强度</label>
+                <select name="reasoning_effort" class="form-control">
+                    <option value="high" {% if text_cfg.get('reasoning_effort','max') == 'high' %}selected{% endif %}>high</option>
+                    <option value="max" {% if text_cfg.get('reasoning_effort','max') == 'max' %}selected{% endif %}>max</option>
+                </select>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">💾 保存</button>
+                    <button type="button" id="btn-test-text" class="btn" onclick="testTextModel()">🔄 测试连接</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">👁️ 视觉模型</div>
+        <div class="card-body">
+            <form id="form-vision" onsubmit="saveVision(event)">
+                <label>Provider</label>
+                <select name="provider" class="form-control">
+                    {% for p in vision_providers %}
+                    <option value="{{ p }}" {% if p == vision_cfg.provider %}selected{% endif %}>{{ p }}</option>
+                    {% endfor %}
+                </select>
+                <label>Model</label>
+                <input name="model" class="form-control" value="{{ vision_cfg.model }}" placeholder="model name">
+                <label>API Key</label>
+                <input name="api_key" class="form-control" type="password" value="{{ vision_cfg.api_key }}" placeholder="sk-xxx">
+                <label>Base URL</label>
+                <input name="base_url" class="form-control" value="{{ vision_cfg.base_url }}" placeholder="https://api.xxx.com/v1">
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">💾 保存</button>
+                    <button type="button" id="btn-test-vision" class="btn" onclick="testVisionModel()">🔄 测试连接</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="card mt-20">
+    <div class="card-header">📋 答题设置</div>
+    <div class="card-body">
+        <form id="form-answer" onsubmit="saveAnswer(event)">
+            <label>答题模式</label>
+            <select name="mode" class="form-control">
+                <option value="stepwise" {% if answer_cfg.get('mode','stepwise') == 'stepwise' %}selected{% endif %}>Stepwise (逐张VL→文本LLM)</option>
+                <option value="direct" {% if answer_cfg.get('mode','stepwise') == 'direct' %}selected{% endif %}>Direct (全部图片→VL直接答题)</option>
+            </select>
+            <label>System Prompt</label>
+            <textarea name="system_prompt" class="form-control" rows="6">{{ answer_cfg.system_prompt }}</textarea>
+            <label>Temperature</label>
+            <input name="temperature" class="form-control" value="{{ answer_cfg.temperature }}" type="number" step="0.1" min="0" max="2">
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">💾 保存</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+document.querySelector('select[name="provider"]').addEventListener('change', function() {
+    document.getElementById('reasoning-effort-group').style.display =
+        this.value === 'deepseek' ? '' : 'none';
+});
+async function saveText(e) {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const data = Object.fromEntries(fd);
+    const resp = await fetch('/api/settings/text', {
+        method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data)
+    });
+    const result = await resp.json();
+    showToast(result.ok ? '✅ 文本模型已保存并生效' : '❌ 保存失败: ' + (result.error||''));
+}
+async function saveVision(e) {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const data = Object.fromEntries(fd);
+    const resp = await fetch('/api/settings/vision', {
+        method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data)
+    });
+    const result = await resp.json();
+    showToast(result.ok ? '✅ 视觉模型已保存并生效' : '❌ 保存失败: ' + (result.error||''));
+}
+async function saveAnswer(e) {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const data = Object.fromEntries(fd);
+    const resp = await fetch('/api/settings/answer', {
+        method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data)
+    });
+    const result = await resp.json();
+    showToast(result.ok ? '✅ 答题设置已保存' : '❌ 保存失败: ' + (result.error||''));
+}
+</script>
+{% endblock %}

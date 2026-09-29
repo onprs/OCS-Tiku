@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+    <h1>📊 概览 <span class="live-dot" id="live-dot" title="实时刷新中"></span></h1>
+    <span class="subtitle">OCS 题库配置 | 统计 | 答题记录</span>
+</div>
+
+<div class="grid-2col">
+    <div class="card">
+        <div class="card-header">📋 题库配置 (OCS)</div>
+        <div class="card-body">
+            <pre class="config-json" id="ocs-config">{{ ocs_config_json }}</pre>
+            <button class="btn btn-primary" onclick="copyText(document.getElementById('ocs-config').textContent)">
+                📋 一键复制配置
+            </button>
+            <div class="hint">
+                💡 复制后，打开 OCS 脚本悬浮窗 → 通用 → 全局设置 → 题库配置<br>
+                解析器选择「默认」，粘贴并保存即可。
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">📊 统计</div>
+        <div class="card-body">
+            <div class="stats">
+                <div class="stat-item">
+                    <span class="stat-num" id="stat-today">{{ stats.today }}</span>
+                    <span class="stat-label">今日答题</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-num" id="stat-total">{{ stats.total }}</span>
+                    <span class="stat-label">总计答题</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-num" id="stat-avg">{{ stats.avg_time_ms }}ms</span>
+                    <span class="stat-label">平均耗时</span>
+                </div>
+            </div>
+            <div class="model-info">
+                <div>📝 文本模型：<strong>{{ stats.text_model }}</strong></div>
+                <div>👁️ 视觉模型：<strong>{{ stats.vision_model }}</strong></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card mt-20" id="records-card" {% if not records %}style="display:none"{% endif %}>
+    <div class="card-header">📝 最近答题记录</div>
+    <div class="card-body">
+        <table class="record-table">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>时间</th>
+                    <th>题型</th>
+                    <th>答案</th>
+                    <th>耗时</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="records-tbody">
+            {% for r in records %}
+                <tr>
+                    <td>{{ r.id }}</td>
+                    <td>{{ r.timestamp[:19] if r.timestamp else '' }}</td>
+                    <td><span class="type-badge type-{{ r.type }}">{{ r.type }}</span></td>
+                    <td>{% if r.status == 'pending' %}<em style="color:#f59e0b">推理中...</em>{% else %}<strong>{{ r.answer }}</strong>{% endif %}</td>
+                    <td>{% if r.status != 'pending' %}{{ r.total_time_ms }}ms{% endif %}</td>
+                    <td>{% if r.status != 'pending' %}<a href="/records/{{ r.id }}" class="btn btn-sm">详情</a>{% endif %}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        <a href="/records" class="btn btn-link mt-10">查看全部 →</a>
+    </div>
+</div>
+
+<script>
+var lastDataHash = '';
+var polling = false;
+var pollTimer = null;
+var pollInterval = 10000;
+
+function schedulePoll() {
+    if (pollTimer) clearTimeout(pollTimer);
+    pollTimer = setTimeout(function() { doPoll(); }, pollInterval);
+}
+function doPoll() {
+    if (polling || document.hidden) { schedulePoll(); return; }
+    polling = true;
+    fetch('/api/dashboard')
+        .then(r => r.json())
+        .then(function(data) {
+            updateStats(data.stats);
+            var hasPending = updateRecords(data.records);
+            pollInterval = hasPending ? 6000 : 10000;
+        })
+        .catch(function(){})
+        .finally(function() { polling = false; schedulePoll(); });
+}
+function updateStats(s) {
+    var elToday = document.getElementById('stat-today');
+    var elTotal = document.getElementById('stat-total');
+    var elAvg = document.getElementById('stat-avg');
+    if (elToday && elToday.textContent != s.today) elToday.textContent = s.today;
+    if (elTotal && elTotal.textContent != s.total) elTotal.textContent = s.total;
+    if (elAvg) elAvg.textContent = s.avg_time_ms + 'ms';
+}
+function updateRecords(records) {
+    var tbody = document.getElementById('records-tbody');
+    var card = document.getElementById('records-card');
+    if (!tbody) return false;
+    var hash = records.map(function(r){return r.id+':'+r.status+':'+r.answer;}).join('|');
+    if (hash === lastDataHash) return hash.indexOf('pending') > -1;
+    lastDataHash = hash;
+    var wasHidden = card.style.display === 'none';
+    if (records.length && wasHidden) card.style.display = '';
+    if (!records.length && !wasHidden) card.style.display = 'none';
+    var frag = document.createDocumentFragment();
+    var hasPending = false;
+    for (var i = 0; i < records.length; i++) {
+        var r = records[i];
+        var isPending = r.status === 'pending';
+        if (isPending) hasPending = true;
+        var tr = document.createElement('tr');
+        tr.innerHTML =
+            '<td>' + r.id + '</td>' +
+            '<td>' + (r.timestamp || '').substring(0, 19) + '</td>' +
+            '<td><span class="type-badge type-' + r.type + '">' + r.type + '</span></td>' +
+            (isPending
+                ? '<td><em style="color:#f59e0b">推理中...</em></td>'
+                : '<td><strong>' + (r.answer || '') + '</strong></td>') +
+            '<td>' + (isPending ? '' : r.total_time_ms + 'ms') + '</td>' +
+            '<td>' + (isPending ? '' : '<a href="/records/' + r.id + '" class="btn btn-sm">详情</a>') + '</td>';
+        frag.appendChild(tr);
+    }
+    tbody.innerHTML = '';
+    tbody.appendChild(frag);
+    return hasPending;
+}
+function startPoll() {
+    doPoll();
+}
+if (document.getElementById('records-tbody')) { startPoll(); }
+</script>
+{% endblock %}

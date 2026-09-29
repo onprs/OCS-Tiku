@@ -1,0 +1,38 @@
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+node_modules/
+build/
+dist/
+*.spec.bak
+
+# 运行时配置、答题记录和下载图片
+config.yaml
+images/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.log
+logs/
+
+# 凭据与证书
+.env*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+
+# 本机调试脚本
+/test.py
+/testEdge.cjs
+/frontend/runner.cjs
+/frontend/test.cjs
+/frontend/testDev.cjs
+/frontend/testEdge.cjs
+/frontend/testRender.tsx

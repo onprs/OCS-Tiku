@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+    <h1>📝 答题记录 <span class="live-dot" id="live-dot" title="实时刷新中"></span></h1>
+    <span class="subtitle">共 <span id="record-total">{{ total }}</span> 条记录</span>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <table class="record-table full-width">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>时间</th>
+                    <th>题型</th>
+                    <th>答案</th>
+                    <th>图片</th>
+                    <th>耗时</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="records-tbody">
+            {% if records %}
+            {% for r in records %}
+                <tr>
+                    <td>{{ r.id }}</td>
+                    <td>{{ r.timestamp[:19] if r.timestamp else '' }}</td>
+                    <td><span class="type-badge type-{{ r.type }}">{{ r.type }}</span></td>
+                    <td>{% if r.status == 'pending' %}<em style="color:#f59e0b">推理中...</em>{% else %}<strong>{{ r.answer }}</strong>{% endif %}</td>
+                    <td>{% if r.status != 'pending' %}{{ r.images | length }}张{% endif %}</td>
+                    <td>{% if r.status != 'pending' %}{{ r.total_time_ms }}ms{% endif %}</td>
+                    <td>{% if r.status != 'pending' %}<a href="/records/{{ r.id }}" class="btn btn-sm">详情</a>{% endif %}</td>
+                </tr>
+            {% endfor %}
+            {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% if pages > 1 %}
+<div class="pagination">
+    {% if page > 1 %}
+    <a href="/records?page={{ page - 1 }}" class="btn">上一页</a>
+    {% endif %}
+    <span>第 {{ page }}/{{ pages }} 页</span>
+    {% if page < pages %}
+    <a href="/records?page={{ page + 1 }}" class="btn">下一页</a>
+    {% endif %}
+</div>
+{% endif %}
+
+<script>
+var lastHash2 = '';
+var polling2 = false;
+var timer2 = null;
+
+function schedule2() {
+    if (timer2) clearTimeout(timer2);
+    timer2 = setTimeout(function() { refresh2(); }, 10000);
+}
+function refresh2() {
+    if (polling2 || document.hidden) { schedule2(); return; }
+    polling2 = true;
+    fetch('/api/records/recent?limit=50')
+        .then(r => r.json())
+        .then(records => {
+            if (!records.length) return;
+            var hash = records.map(function(r){return r.id+':'+r.status+':'+r.answer;}).join('|');
+            if (hash === lastHash2) return;
+            lastHash2 = hash;
+            var tbody = document.getElementById('records-tbody');
+            if (!tbody) return;
+            var frag = document.createDocumentFragment();
+            for (var i = 0; i < records.length; i++) {
+                var r = records[i];
+                var isPending = r.status === 'pending';
+                var tr = document.createElement('tr');
+                tr.innerHTML =
+                    '<td>' + r.id + '</td>' +
+                    '<td>' + (r.timestamp || '').substring(0, 19) + '</td>' +
+                    '<td><span class="type-badge type-' + r.type + '">' + r.type + '</span></td>' +
+                    (isPending
+                        ? '<td><em style="color:#f59e0b">推理中...</em></td>'
+                        : '<td><strong>' + (r.answer || '') + '</strong></td>') +
+                    '<td>' + (isPending ? '' : (r.images || []).length + '张') + '</td>' +
+                    '<td>' + (isPending ? '' : r.total_time_ms + 'ms') + '</td>' +
+                    '<td>' + (isPending ? '' : '<a href="/records/' + r.id + '" class="btn btn-sm">详情</a>') + '</td>';
+                frag.appendChild(tr);
+            }
+            tbody.innerHTML = '';
+            tbody.appendChild(frag);
+            fetch('/api/stats').then(r2 => r2.json()).then(s => {
+                var el = document.getElementById('record-total');
+                if (el) el.textContent = s.total;
+            }).catch(function(){});
+        })
+        .catch(function(){})
+        .finally(function() { polling2 = false; schedule2(); });
+}
+refresh2();
+</script>
+{% endblock %}

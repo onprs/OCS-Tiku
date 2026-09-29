@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+    <h1>📝 答题详情 #{{ record.id }}</h1>
+    <a href="/records" class="btn">&larr; 返回列表</a>
+</div>
+
+<div class="card mt-20">
+    <div class="card-header">基本信息</div>
+    <div class="card-body detail-grid">
+        <div><strong>时间：</strong>{{ record.timestamp[:19] }}</div>
+        <div><strong>题型：</strong><span class="type-badge type-{{ record.type }}">{{ record.type }}</span></div>
+        <div><strong>答案：</strong><span class="answer-highlight">{{ record.answer }}</span></div>
+        <div><strong>耗时：</strong>{{ record.total_time_ms }}ms</div>
+        <div><strong>文本模型：</strong>{{ record.text_model }}</div>
+        <div><strong>视觉模型：</strong>{{ record.vision_model }}</div>
+    </div>
+</div>
+
+{% if record.images %}
+<div class="card mt-20">
+    <div class="card-header">🖼️ 图片识别 ({{ record.images | length }}张)</div>
+    <div class="card-body">
+    {% for img in record.images %}
+        <div class="image-block">
+            <div class="image-url">{{ img.url }}</div>
+            {% if img.src %}<div class="image-preview"><img src="{{ img.src }}" style="max-width:400px;max-height:200px;border:1px solid #e2e8f0;border-radius:4px;" /></div>{% endif %}
+            <div class="image-desc">识别结果：{{ img.description }}</div>
+            {% if img.status == "failed" %}<span class="badge badge-fail">失败</span>{% endif %}
+        </div>
+    {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<div class="card mt-20">
+    <div class="card-header">📤 预处理前</div>
+    <div class="card-body">
+        <div><strong>题目：</strong><pre class="pre-wrap">{{ record.raw_title }}</pre></div>
+        <div><strong>选项：</strong><pre class="pre-wrap">{{ record.raw_options }}</pre></div>
+    </div>
+</div>
+
+<div class="card mt-20">
+    <div class="card-header">📤 预处理后（发给LLM）</div>
+    <div class="card-body">
+        <div><strong>题目：</strong><pre class="pre-wrap">{{ record.processed_title }}</pre></div>
+        <div><strong>选项：</strong><pre class="pre-wrap">{{ record.processed_options }}</pre></div>
+    </div>
+</div>
+
+<div class="card mt-20">
+    <div class="card-header">📤 最终 Prompt</div>
+    <div class="card-body">
+        <pre class="prompt-box">{{ record.final_prompt }}</pre>
+    </div>
+</div>
+
+{% if record.reasoning and record.reasoning.strip() %}
+<div class="card mt-20">
+    <div class="card-header">🧠 LLM 推理链 (reasoning_content)</div>
+    <div class="card-body">
+        <pre class="prompt-box">{{ record.reasoning }}</pre>
+    </div>
+</div>
+{% endif %}
+
+{% if record.raw_content and record.raw_content.strip() %}
+<div class="card mt-20">
+    <div class="card-header">📄 模型原始输出 (raw content)</div>
+    <div class="card-body">
+        <pre class="prompt-box">{{ record.raw_content }}</pre>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

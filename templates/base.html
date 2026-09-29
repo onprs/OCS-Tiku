@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OCS 超星题库</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="layout">
+        <aside class="sidebar">
+            <div class="brand">OCS 超星题库</div>
+            <nav id="sidebar-nav">
+                <a href="/" class="nav-item">📊 概览</a>
+                <a href="/records" class="nav-item">📝 答题记录</a>
+                <a href="/settings" class="nav-item">⚙️ 模型设置</a>
+            </nav>
+        </aside>
+        <main class="content">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+    <div id="toast" class="toast" style="display:none;"></div>
+    <script>
+    function showToast(msg, duration=3000) {
+        const t = document.getElementById('toast');
+        t.textContent = msg;
+        t.style.display = 'block';
+        t.classList.add('show');
+        setTimeout(() => { t.classList.remove('show'); setTimeout(()=>t.style.display='none',300); }, duration);
+    }
+    async function copyText(text) {
+        try {
+            await navigator.clipboard.writeText(text);
+            showToast('✅ 已复制到剪贴板！');
+        } catch {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.left = '-9999px';
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+            showToast('✅ 已复制到剪贴板！');
+        }
+    }
+    async function testTextModel() {
+        const btn = document.getElementById('btn-test-text');
+        btn.disabled = true;
+        btn.textContent = '测试中...';
+        try {
+            const resp = await fetch('/api/test-text');
+            const data = await resp.json();
+            showToast(data.ok ? '✅ 文本模型连接成功' : '❌ 文本模型连接失败: ' + (data.error||''));
+        } catch(e) {
+            showToast('❌ 请求失败: ' + e.message);
+        }
+        btn.disabled = false;
+        btn.textContent = '🔄 测试连接';
+    }
+    async function testVisionModel() {
+        const btn = document.getElementById('btn-test-vision');
+        btn.disabled = true;
+        btn.textContent = '测试中...';
+        try {
+            const resp = await fetch('/api/test-vision');
+            const data = await resp.json();
+            showToast(data.ok ? '✅ 视觉模型连接成功' : '❌ 视觉模型连接失败: ' + (data.error||''));
+        } catch(e) {
+            showToast('❌ 请求失败: ' + e.message);
+        }
+        btn.disabled = false;
+        btn.textContent = '🔄 测试连接';
+    }
+    </script>
+    <script>
+    (function() {
+        var nav = document.getElementById('sidebar-nav');
+        if (!nav) return;
+        var links = nav.querySelectorAll('.nav-item');
+        var path = window.location.pathname;
+        links.forEach(function(link) {
+            link.classList.remove('active');
+            var href = link.getAttribute('href');
+            if (href === '/' && path === '/') {
+                link.classList.add('active');
+            } else if (href !== '/' && path.startsWith(href)) {
+                link.classList.add('active');
+            }
+        });
+    })();
+    </script>
+</body>
+</html>
