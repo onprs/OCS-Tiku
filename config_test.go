@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -84,5 +85,68 @@ func TestServiceTemplatesCanBeSaved(t *testing.T) {
 				t.Fatalf("预置服务无法保存: %v", err)
 			}
 		})
+	}
+}
+
+func TestLegacyConfigWithPromptsLoadsAndDefaultsMaxRetries(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	legacy := `server:
+  host: 127.0.0.1
+  port: 8000
+services:
+  deepseek:
+    name: DeepSeek
+    protocol: openai-chat
+    base_url: https://api.deepseek.com
+    api_key: demo
+    vendor: deepseek
+answer:
+  temperature: 0.2
+  system_prompt: 旧版提示词
+  caption_prompt: 旧版图片提示词
+  answer:
+    service: deepseek
+    model: deepseek-chat
+    vision: auto
+    tool_call: auto
+  caption:
+    vision: auto
+    tool_call: auto
+  agent:
+    enabled: false
+    max_iterations: 3
+`
+	if err := os.WriteFile(path, []byte(legacy), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadConfig(path)
+	if err != nil {
+		t.Fatalf("加载旧版配置失败: %v", err)
+	}
+	snap := cfg.snapshot()
+	if snap.Answer.MaxRetries != defaultMaxRetries || snap.Answer.Temperature != 0.2 {
+		t.Fatalf("旧配置加载默认值异常: %+v", snap.Answer)
+	}
+	bad := snap.Answer
+	bad.MaxRetries = -1
+	if err := cfg.updateAnswer(bad); err == nil {
+		t.Fatal("负数重试次数应被拒绝")
+	}
+	bad.MaxRetries = 6
+	if err := cfg.updateAnswer(bad); err == nil {
+		t.Fatal("超限重试次数应被拒绝")
+	}
+	good := snap.Answer
+	good.MaxRetries = 0
+	if err := cfg.updateAnswer(good); err != nil {
+		t.Fatalf("允许关闭重试，保存失败: %v", err)
+	}
+	saved, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(saved), "system_prompt") || strings.Contains(string(saved), "caption_prompt") {
+		t.Fatalf("配置文件不应再持久化内部提示词: %s", saved)
 	}
 }

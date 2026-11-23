@@ -19,26 +19,42 @@ type ImageInfo struct {
 	Status      string `json:"status"`
 }
 
+// AttemptRecord 描述同一条答题记录内的单次作答尝试（含调用失败与答案校验失败重试）。
+type AttemptRecord struct {
+	Attempt    int    `json:"attempt"`
+	Stage      string `json:"stage"`
+	Model      string `json:"model"`
+	Status     string `json:"status"`
+	Answer     string `json:"answer,omitempty"`
+	RawContent string `json:"raw_content,omitempty"`
+	Reasoning  string `json:"reasoning,omitempty"`
+	Error      string `json:"error,omitempty"`
+	LatencyMS  int64  `json:"latency_ms"`
+	Timestamp  string `json:"timestamp"`
+}
+
 type Record struct {
-	ID               int64       `json:"id"`
-	Timestamp        string      `json:"timestamp"`
-	Type             string      `json:"type"`
-	Status           string      `json:"status"`
-	RawTitle         string      `json:"raw_title"`
-	RawOptions       string      `json:"raw_options"`
-	ProcessedTitle   string      `json:"processed_title"`
-	ProcessedOptions string      `json:"processed_options"`
-	Images           []ImageInfo `json:"images"`
-	FinalPrompt      string      `json:"final_prompt"`
-	Reasoning        string      `json:"reasoning"`
-	RawContent       string      `json:"raw_content"`
-	Answer           string      `json:"answer"`
-	AnswerModel      string      `json:"answer_model"`
-	CaptionModel     string      `json:"caption_model"`
-	Vision           bool        `json:"vision"`
-	AgentError       string      `json:"agent_error,omitempty"`
-	TotalTimeMS      int64       `json:"total_time_ms"`
-	Calls            []ModelCall `json:"calls,omitempty"`
+	ID               int64           `json:"id"`
+	Timestamp        string          `json:"timestamp"`
+	Type             string          `json:"type"`
+	Status           string          `json:"status"`
+	RawTitle         string          `json:"raw_title"`
+	RawOptions       string          `json:"raw_options"`
+	ProcessedTitle   string          `json:"processed_title"`
+	ProcessedOptions string          `json:"processed_options"`
+	Images           []ImageInfo     `json:"images"`
+	FinalPrompt      string          `json:"final_prompt"`
+	Reasoning        string          `json:"reasoning"`
+	RawContent       string          `json:"raw_content"`
+	Answer           string          `json:"answer"`
+	AnswerModel      string          `json:"answer_model"`
+	CaptionModel     string          `json:"caption_model"`
+	Vision           bool            `json:"vision"`
+	AgentError       string          `json:"agent_error,omitempty"`
+	TotalTimeMS      int64           `json:"total_time_ms"`
+	Attempts         []AttemptRecord `json:"attempts"`
+	RetryCount       int             `json:"retry_count,omitempty"`
+	Calls            []ModelCall     `json:"calls,omitempty"`
 }
 
 // RecordSummary 是列表轮询使用的记录摘要。
@@ -50,6 +66,7 @@ type RecordSummary struct {
 	ProcessedTitle string `json:"processed_title"`
 	Answer         string `json:"answer"`
 	TotalTimeMS    int64  `json:"total_time_ms"`
+	RetryCount     int    `json:"retry_count,omitempty"`
 }
 
 // ModelCall 是一次模型调用的用量记录。
@@ -71,7 +88,7 @@ type ModelCall struct {
 
 type Store struct{ db *sql.DB }
 
-const recordColumns = "id, timestamp, type, status, raw_title, raw_options, processed_title, processed_options, images, final_prompt, reasoning, raw_content, answer, answer_model, caption_model, vision, agent_error, total_time_ms"
+const recordColumns = "id, timestamp, type, status, raw_title, raw_options, processed_title, processed_options, images, final_prompt, reasoning, raw_content, answer, answer_model, caption_model, vision, agent_error, total_time_ms, attempts, retry_count"
 
 func openStore(path string) (*Store, error) {
 	db, err := sql.Open("sqlite", filepath.ToSlash(path))
@@ -86,7 +103,8 @@ func openStore(path string) (*Store, error) {
 		processed_title TEXT DEFAULT '', processed_options TEXT DEFAULT '', images TEXT DEFAULT '[]',
 		final_prompt TEXT DEFAULT '', reasoning TEXT DEFAULT '', raw_content TEXT DEFAULT '',
 		answer TEXT DEFAULT '', answer_model TEXT DEFAULT '', caption_model TEXT DEFAULT '',
-		vision INTEGER DEFAULT 0, agent_error TEXT DEFAULT '', total_time_ms INTEGER DEFAULT 0);
+		vision INTEGER DEFAULT 0, agent_error TEXT DEFAULT '', total_time_ms INTEGER DEFAULT 0,
+		attempts TEXT DEFAULT '[]', retry_count INTEGER DEFAULT 0);
 		CREATE TABLE IF NOT EXISTS model_calls (
 		id INTEGER PRIMARY KEY AUTOINCREMENT, record_id INTEGER NOT NULL, slot TEXT DEFAULT '',
 		vendor TEXT DEFAULT '', protocol TEXT DEFAULT '', model TEXT DEFAULT '',
@@ -164,6 +182,18 @@ func openStore(path string) (*Store, error) {
 	}
 	if !cols["agent_error"] {
 		if _, err = db.Exec("ALTER TABLE records ADD COLUMN agent_error TEXT DEFAULT ''"); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
+	if !cols["attempts"] {
+		if _, err = db.Exec("ALTER TABLE records ADD COLUMN attempts TEXT DEFAULT '[]'"); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
+	if !cols["retry_count"] {
+		if _, err = db.Exec("ALTER TABLE records ADD COLUMN retry_count INTEGER DEFAULT 0"); err != nil {
 			db.Close()
 			return nil, err
 		}
@@ -254,7 +284,17 @@ func (s *Store) complete(ctx context.Context, r Record) error {
 	if strings.TrimSpace(r.Answer) == "" {
 		r.Answer = "ERROR: " + errEmptyAnswer.Error()
 	}
+	if r.Images == nil {
+		r.Images = []ImageInfo{}
+	}
 	images, err := json.Marshal(r.Images)
+	if err != nil {
+		return err
+	}
+	if r.Attempts == nil {
+		r.Attempts = []AttemptRecord{}
+	}
+	attempts, err := json.Marshal(r.Attempts)
 	if err != nil {
 		return err
 	}
@@ -265,10 +305,10 @@ func (s *Store) complete(ctx context.Context, r Record) error {
 	defer tx.Rollback()
 	res, err := tx.ExecContext(ctx, `UPDATE records SET timestamp=?, type=?, status='complete', raw_title=?, raw_options=?,
 		processed_title=?, processed_options=?, images=?, final_prompt=?, reasoning=?, raw_content=?, answer=?,
-		answer_model=?, caption_model=?, vision=?, agent_error=?, total_time_ms=? WHERE id=? AND status!='complete'`,
+		answer_model=?, caption_model=?, vision=?, agent_error=?, total_time_ms=?, attempts=?, retry_count=? WHERE id=? AND status!='complete'`,
 		r.Timestamp, r.Type, r.RawTitle, r.RawOptions, r.ProcessedTitle, r.ProcessedOptions, string(images),
 		r.FinalPrompt, r.Reasoning, r.RawContent, r.Answer, r.AnswerModel, r.CaptionModel, r.Vision,
-		r.AgentError, r.TotalTimeMS, r.ID)
+		r.AgentError, r.TotalTimeMS, string(attempts), r.RetryCount, r.ID)
 	if err != nil {
 		return err
 	}
@@ -298,10 +338,10 @@ func (s *Store) complete(ctx context.Context, r Record) error {
 
 func scanRecord(row interface{ Scan(...any) error }) (Record, error) {
 	var r Record
-	var images string
+	var images, attempts string
 	err := row.Scan(&r.ID, &r.Timestamp, &r.Type, &r.Status, &r.RawTitle, &r.RawOptions, &r.ProcessedTitle,
 		&r.ProcessedOptions, &images, &r.FinalPrompt, &r.Reasoning, &r.RawContent, &r.Answer, &r.AnswerModel,
-		&r.CaptionModel, &r.Vision, &r.AgentError, &r.TotalTimeMS)
+		&r.CaptionModel, &r.Vision, &r.AgentError, &r.TotalTimeMS, &attempts, &r.RetryCount)
 	if err != nil {
 		return r, err
 	}
@@ -309,6 +349,12 @@ func scanRecord(row interface{ Scan(...any) error }) (Record, error) {
 	if images != "" {
 		if err = json.Unmarshal([]byte(images), &r.Images); err != nil {
 			r.Images = []ImageInfo{}
+		}
+	}
+	r.Attempts = []AttemptRecord{}
+	if attempts != "" {
+		if err = json.Unmarshal([]byte(attempts), &r.Attempts); err != nil {
+			r.Attempts = []AttemptRecord{}
 		}
 	}
 	return r, nil
@@ -320,7 +366,7 @@ func (s *Store) get(ctx context.Context, id int64) (Record, error) {
 
 func (s *Store) list(ctx context.Context, limit, offset int) ([]RecordSummary, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, timestamp, type, status, substr(processed_title,1,300),
-		substr(answer,1,200), total_time_ms FROM records ORDER BY id DESC LIMIT ? OFFSET ?`, limit, offset)
+		substr(answer,1,200), total_time_ms, retry_count FROM records ORDER BY id DESC LIMIT ? OFFSET ?`, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -328,7 +374,7 @@ func (s *Store) list(ctx context.Context, limit, offset int) ([]RecordSummary, e
 	result := []RecordSummary{}
 	for rows.Next() {
 		var r RecordSummary
-		if err := rows.Scan(&r.ID, &r.Timestamp, &r.Type, &r.Status, &r.ProcessedTitle, &r.Answer, &r.TotalTimeMS); err != nil {
+		if err := rows.Scan(&r.ID, &r.Timestamp, &r.Type, &r.Status, &r.ProcessedTitle, &r.Answer, &r.TotalTimeMS, &r.RetryCount); err != nil {
 			return nil, err
 		}
 		result = append(result, r)

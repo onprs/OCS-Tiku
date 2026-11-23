@@ -269,8 +269,8 @@ func TestImagePaths(t *testing.T) {
 		t.Fatal("直传路径没有发送图片")
 	}
 	config, err := os.ReadFile(filepath.Join(dir, "config.yaml"))
-	if err != nil || !strings.Contains(string(config), "caption_prompt") {
-		t.Fatalf("设置未保存: %v", err)
+	if err != nil || !strings.Contains(string(config), "max_retries") || strings.Contains(string(config), "system_prompt") || strings.Contains(string(config), "caption_prompt") {
+		t.Fatalf("设置保存异常: %v\n%s", err, config)
 	}
 }
 
@@ -400,6 +400,25 @@ func TestOldDatabaseMigration(t *testing.T) {
 	stats, err := store.stats(context.Background())
 	if err != nil || stats.Total != 1 || stats.SuccessRate != 100 {
 		t.Fatalf("旧库统计异常: %+v %v", stats, err)
+	}
+	id, err := store.pending(context.Background(), "judgement")
+	if err != nil {
+		t.Fatal(err)
+	}
+	migrated := Record{
+		ID: id, Timestamp: "2026-01-02T00:00:00.000000", Type: "judgement", Status: "complete",
+		RawTitle: "迁移后重试题目", ProcessedTitle: "迁移后重试题目", Answer: "对", RetryCount: 1,
+		Attempts: []AttemptRecord{
+			{Attempt: 1, Stage: "answer", Status: "invalid", Error: "判断题答案必须为“对”或“错”"},
+			{Attempt: 2, Stage: "retry", Status: "ok", Answer: "对"},
+		},
+	}
+	if err := store.complete(context.Background(), migrated); err != nil {
+		t.Fatalf("旧库升级后写入重试记录失败: %v", err)
+	}
+	got, err := store.get(context.Background(), id)
+	if err != nil || got.RetryCount != 1 || len(got.Attempts) != 2 || got.Attempts[0].Status != "invalid" {
+		t.Fatalf("旧库升级后读取重试记录异常: %+v %v", got, err)
 	}
 }
 
@@ -563,7 +582,7 @@ func TestAgentMode(t *testing.T) {
 	}
 
 	var result struct{ Question, Answer string }
-	requestJSON(t, web, "POST", "/api/search", map[string]string{"title": "函数题目", "options": "A. 一\nB. 二", "type": "single"}, 200, &result)
+	requestJSON(t, web, "POST", "/api/search", map[string]string{"title": "函数题目", "options": "A. 一\nB. 二\nC. 三\nD. 四", "type": "single"}, 200, &result)
 	if result.Answer != "D" {
 		t.Fatalf("Agent 作答异常: %+v", result)
 	}

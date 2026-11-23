@@ -33,13 +33,9 @@ func (q searchRequest) prepare() (string, string, map[string][]byte, error) {
 	if q.SuggestionOptions != "" {
 		options = q.SuggestionOptions
 	}
-	references := extractImageReferences(title + "\n" + options)
+	matches := imagePlaceholderPattern.FindAllStringSubmatch(title+"\n"+options, -1)
 	used := make(map[int]bool)
-	for _, reference := range references {
-		match := imagePlaceholderPattern.FindStringSubmatch(reference)
-		if !strings.HasPrefix(reference, "[图片") || match == nil {
-			continue
-		}
+	for _, match := range matches {
 		index, err := strconv.Atoi(match[1])
 		if err != nil || index < 1 || index > len(q.Images) {
 			return "", "", nil, fmt.Errorf("%s 缺少对应的图片数据", match[0])

@@ -59,7 +59,11 @@ func (t *historyTool) InvokableRun(ctx context.Context, arguments string, _ ...t
 		if strings.TrimSpace(options) == "" {
 			options = record.RawOptions
 		}
-		options = labelOptions(options)
+		if effectiveQuestionType(record.Type, options) == "judgement" {
+			options = ""
+		} else {
+			options = labelOptions(options)
+		}
 		if len(options) > 2000 {
 			options = truncateText(options, 2000) + "…（选项已截断）"
 		}

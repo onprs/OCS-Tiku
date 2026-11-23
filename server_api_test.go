@@ -169,3 +169,23 @@ func TestRecordListIsBoundedAndDetailsStayComplete(t *testing.T) {
 	}
 	t.Logf("50 条含长推理记录的摘要响应：%d 字节", recorder.Body.Len())
 }
+
+func TestSettingsAPIHidesInternalPrompts(t *testing.T) {
+	_, web, _ := setupServer(t)
+	resp, err := web.Client().Get(web.URL + "/api/settings")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	if strings.Contains(text, "system_prompt") || strings.Contains(text, "caption_prompt") {
+		t.Fatalf("/api/settings 不应暴露内部提示词: %s", text)
+	}
+	if !strings.Contains(text, `"max_retries":2`) {
+		t.Fatalf("/api/settings 应返回默认重试次数: %s", text)
+	}
+}

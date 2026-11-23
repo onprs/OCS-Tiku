@@ -53,12 +53,11 @@ type AgentConfig struct {
 
 // AnswerConfig 是答题配置，包含回答模型与可选的图片转述模型。
 type AnswerConfig struct {
-	Temperature   float64     `json:"temperature" yaml:"temperature"`
-	SystemPrompt  string      `json:"system_prompt" yaml:"system_prompt"`
-	CaptionPrompt string      `json:"caption_prompt" yaml:"caption_prompt"`
-	Answer        ModelConfig `json:"answer" yaml:"answer"`
-	Caption       ModelConfig `json:"caption" yaml:"caption"`
-	Agent         AgentConfig `json:"agent" yaml:"agent"`
+	Temperature float64     `json:"temperature" yaml:"temperature"`
+	MaxRetries  int         `json:"max_retries" yaml:"max_retries"`
+	Answer      ModelConfig `json:"answer" yaml:"answer"`
+	Caption     ModelConfig `json:"caption" yaml:"caption"`
+	Agent       AgentConfig `json:"agent" yaml:"agent"`
 }
 
 type serverConfig struct {
@@ -81,10 +80,6 @@ type Config struct {
 	data fileConfig
 }
 
-const defaultSystemPrompt = "你是一个大学生网课答题助手。请根据题目和选项，在<answer>标签内输出正确答案。\n\n格式要求：\n单选题：<answer>A</answer>\n多选题：<answer>A#B#C</answer>\n判断题：<answer>对</answer> 或 <answer>错</answer>\n填空题：<answer>填空内容</answer>（多个空用#分隔）\n\n只输出<answer>标签，禁止任何额外文字、分析或解释。"
-
-const defaultCaptionPrompt = "请精确识别图片中的内容。如果是数学公式，用LaTeX格式完整输出每个符号，例如：\\frac{1}{2}、\\sqrt{x}、\\int_{a}^{b}。如果是图表或文字，描述关键信息。如果图片空白或完全无法辨认，回复'空白'。只输出识别结果，不解释。"
-
 func defaults() fileConfig {
 	var c fileConfig
 	c.Server.Host, c.Server.Port = "127.0.0.1", 8000
@@ -92,12 +87,11 @@ func defaults() fileConfig {
 		"deepseek": {Name: "DeepSeek", Protocol: ProtocolOpenAIChat, BaseURL: "https://api.deepseek.com", Vendor: "deepseek"},
 	}
 	c.Answer = AnswerConfig{
-		Temperature:   0.1,
-		SystemPrompt:  defaultSystemPrompt,
-		CaptionPrompt: defaultCaptionPrompt,
-		Answer:        ModelConfig{Service: "deepseek", Model: "deepseek-v4-flash", Vision: CapabilityAuto, ToolCall: CapabilityAuto, ReasoningEffort: "max"},
-		Caption:       ModelConfig{Vision: CapabilityAuto, ToolCall: CapabilityAuto},
-		Agent:         AgentConfig{MaxIterations: 3},
+		Temperature: 0.1,
+		MaxRetries:  defaultMaxRetries,
+		Answer:      ModelConfig{Service: "deepseek", Model: "deepseek-v4-flash", Vision: CapabilityAuto, ToolCall: CapabilityAuto, ReasoningEffort: "max"},
+		Caption:     ModelConfig{Vision: CapabilityAuto, ToolCall: CapabilityAuto},
+		Agent:       AgentConfig{MaxIterations: 3},
 	}
 	return c
 }
@@ -119,6 +113,9 @@ func loadConfig(path string) (*Config, error) {
 	}
 	if c.data.Server.Port < 1 || c.data.Server.Port > 65535 {
 		return nil, fmt.Errorf("配置端口无效: %d", c.data.Server.Port)
+	}
+	if c.data.Answer.MaxRetries < 0 || c.data.Answer.MaxRetries > maxAllowedRetries {
+		return nil, fmt.Errorf("重试次数无效: %d", c.data.Answer.MaxRetries)
 	}
 	if c.data.Services == nil {
 		c.data.Services = map[string]ServiceConfig{}
@@ -295,6 +292,9 @@ func (c *Config) deleteService(id string) error {
 func (c *Config) updateAnswer(v AnswerConfig) error {
 	if v.Temperature < 0 || v.Temperature > 2 {
 		return errors.New("温度必须在 0 到 2 之间")
+	}
+	if v.MaxRetries < 0 || v.MaxRetries > maxAllowedRetries {
+		return fmt.Errorf("重试次数必须在 0 到 %d 之间", maxAllowedRetries)
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()

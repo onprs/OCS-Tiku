@@ -37,8 +37,7 @@ type AgentConfig = {
 
 type AnswerConfig = {
   temperature: number;
-  system_prompt: string;
-  caption_prompt: string;
+  max_retries: number;
   answer: ModelConfig;
   caption: ModelConfig;
   agent: AgentConfig;
@@ -642,29 +641,9 @@ function AnswerPanel({ data, onSaved }: { data: SettingsData; onSaved: () => voi
     <Card className="glass border-border/50 shadow-sm">
       <CardHeader className="border-b border-border/40 pb-6 bg-muted/20">
         <CardTitle className="text-xl">答题设置</CardTitle>
-        <CardDescription className="text-sm mt-1">调整提示词与生成参数。</CardDescription>
+        <CardDescription className="text-sm mt-1">调整生成参数、异常重试与 Agent 模式。</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6 pt-6">
-        <div className="grid gap-2">
-          <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">答题提示词</Label>
-          <textarea
-            value={draft.system_prompt || ""}
-            onChange={e => setDraft({ ...draft, system_prompt: e.target.value })}
-            rows={6}
-            className="flex w-full rounded-md border border-input bg-background/50 px-3 py-2 text-sm font-mono"
-          />
-          <p className="text-[11px] text-muted-foreground">要求模型在 &lt;answer&gt; 标签内输出答案。</p>
-        </div>
-        <div className="grid gap-2">
-          <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">图片转述提示词</Label>
-          <textarea
-            value={draft.caption_prompt || ""}
-            onChange={e => setDraft({ ...draft, caption_prompt: e.target.value })}
-            rows={4}
-            className="flex w-full rounded-md border border-input bg-background/50 px-3 py-2 text-sm font-mono"
-          />
-          <p className="text-[11px] text-muted-foreground">指导转述模型如何描述题目中的图片。</p>
-        </div>
         <div className="grid gap-2">
           <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">温度</Label>
           <Input
@@ -673,9 +652,26 @@ function AnswerPanel({ data, onSaved }: { data: SettingsData; onSaved: () => voi
             min="0"
             max="2"
             value={draft.temperature ?? 0.1}
-            onChange={e => setDraft({ ...draft, temperature: parseFloat(e.target.value) || 0 })}
+            onChange={e => {
+              const parsed = parseFloat(e.target.value);
+              setDraft({ ...draft, temperature: Number.isNaN(parsed) ? 0 : parsed });
+            }}
           />
           <p className="text-[11px] text-muted-foreground">数值越低输出越稳定。</p>
+        </div>
+        <div className="grid gap-2">
+          <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">异常重试次数</Label>
+          <Input
+            type="number"
+            min="0"
+            max="5"
+            value={draft.max_retries ?? 2}
+            onChange={e => {
+              const parsed = parseInt(e.target.value, 10);
+              setDraft({ ...draft, max_retries: Number.isNaN(parsed) ? 0 : parsed });
+            }}
+          />
+          <p className="text-[11px] text-muted-foreground">模型调用失败或答案不符合题型要求时的最大重试次数（0 表示不重试）。</p>
         </div>
         <div className="flex items-center gap-3 rounded-lg border border-border/50 bg-muted/20 p-3">
           <input
@@ -698,7 +694,7 @@ function AnswerPanel({ data, onSaved }: { data: SettingsData; onSaved: () => voi
               min="1"
               max="10"
               value={draft.agent.max_iterations ?? 3}
-              onChange={e => setDraft({ ...draft, agent: { ...draft.agent, max_iterations: parseInt(e.target.value) || 3 } })}
+              onChange={e => setDraft({ ...draft, agent: { ...draft.agent, max_iterations: parseInt(e.target.value, 10) || 3 } })}
             />
           </div>
         )}

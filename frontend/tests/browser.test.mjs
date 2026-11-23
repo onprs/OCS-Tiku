@@ -89,7 +89,7 @@ test('服务设置、记录详情与看板回归', { timeout: 30000 }, async t =
     ],
     protocols: [{ id: 'openai-chat', label: 'OpenAI 兼容' }],
     answer: {
-      temperature: 0.1, system_prompt: '答题提示词', caption_prompt: '图片提示词',
+      temperature: 0.1, max_retries: 2,
       answer: { service: 'deepseek', model: 'saved-model', vision: 'off', tool_call: 'off' },
       caption: { service: '', model: '', vision: 'auto', tool_call: 'auto' },
       agent: { enabled: false, max_iterations: 3, tools: null },
@@ -102,8 +102,22 @@ test('服务设置、记录详情与看板回归', { timeout: 30000 }, async t =
   const record = () => ({
     id: 1, timestamp: '2026-01-01T12:00:00', type: 'single', status: completed ? 'complete' : 'pending',
     processed_title: '等待处理的题目', raw_options: '', processed_options: '', answer: completed ? '已完成答案' : '',
-    reasoning: '', raw_content: '', images: [], final_prompt: '', answer_model: 'saved-model', caption_model: '', vision: false, total_time_ms: 100, calls: [],
+    reasoning: '', raw_content: '', images: [], final_prompt: '', answer_model: 'saved-model', caption_model: '', vision: false, total_time_ms: 100, attempts: [], retry_count: 0, calls: [],
   });
+  const retriedRecord = {
+    id: 2, timestamp: '2026-01-01T12:01:00', type: 'judgement', status: 'complete',
+    processed_title: 'TCP 是面向连接的协议', raw_options: '对\n错', processed_options: '对\n错', answer: '对',
+    reasoning: '', raw_content: '<answer>对</answer>', images: [], final_prompt: '', answer_model: 'saved-model', caption_model: '', vision: false, total_time_ms: 280,
+    retry_count: 1,
+    attempts: [
+      { attempt: 1, stage: 'answer', model: 'saved-model', status: 'invalid', raw_content: '<answer>A</answer>', error: '判断题答案必须为“对”或“错”，不能输出选项字母“A”', latency_ms: 120, timestamp: '2026-01-01T12:01:00' },
+      { attempt: 2, stage: 'retry', model: 'saved-model', status: 'ok', answer: '对', raw_content: '<answer>对</answer>', latency_ms: 160, timestamp: '2026-01-01T12:01:01' },
+    ],
+    calls: [
+      { id: 1, slot: 'answer', model: 'saved-model', protocol: 'openai-chat', prompt_tokens: 10, completion_tokens: 5, total_tokens: 15, latency_ms: 120, status: 'ok' },
+      { id: 2, slot: 'retry', model: 'saved-model', protocol: 'openai-chat', prompt_tokens: 18, completion_tokens: 4, total_tokens: 22, latency_ms: 160, status: 'ok' },
+    ],
+  };
   const json = (response, value, status = 200) => {
     response.writeHead(status, { 'Content-Type': 'application/json' });
     response.end(JSON.stringify(value));
@@ -118,6 +132,10 @@ test('服务设置、记录详情与看板回归', { timeout: 30000 }, async t =
         const body = text ? JSON.parse(text) : null;
         requests.push({ method: request.method, path: url.pathname, body });
         if (url.pathname === '/api/settings') return json(response, settings);
+        if (url.pathname === '/api/settings/answer' && request.method === 'PUT') {
+          settings.answer = body;
+          return json(response, { ok: true });
+        }
         if (url.pathname.startsWith('/api/services/') && request.method === 'POST') {
           const id = url.pathname.split('/').at(-1);
           if (Object.hasOwn(settings.services, id)) return json(response, { error: '服务标识已存在' }, 409);
@@ -126,8 +144,9 @@ test('服务设置、记录详情与看板回归', { timeout: 30000 }, async t =
         }
         if (url.pathname === '/api/models/list') return json(response, { models: [] });
         if (url.pathname.startsWith('/api/test/')) return json(response, { ok: true });
-        if (url.pathname === '/api/records') return json(response, { records: [record()], total: 1, page: 1, pages: 1 });
+        if (url.pathname === '/api/records') return json(response, { records: [record(), retriedRecord], total: 2, page: 1, pages: 1 });
         if (url.pathname === '/api/records/1') { detailRequests++; return json(response, record()); }
+        if (url.pathname === '/api/records/2') return json(response, retriedRecord);
         if (url.pathname === '/api/dashboard') return json(response, { stats: { today: 7, total: 7, success_rate: 100, today_tokens: 123, total_tokens: 456 }, daily_counts: [] });
         if (url.pathname === '/api/config') return json(response, []);
         return json(response, {});
@@ -203,6 +222,25 @@ test('服务设置、记录详情与看板回归', { timeout: 30000 }, async t =
       assert.equal(settings.answer.answer.model, 'saved-model');
     });
 
+    await t.test('答题设置隐藏内部提示词并支持修改异常重试次数', async () => {
+      await click('答题设置');
+      await wait(`document.body.textContent.includes('异常重试次数')`);
+      const text = await evaluate(`document.body.textContent`);
+      assert.equal(text.includes('答题提示词'), false);
+      assert.equal(text.includes('图片转述提示词'), false);
+      assert.equal(await evaluate(`document.querySelectorAll('textarea').length`), 0);
+      const retryInput = `Array.from(document.querySelectorAll('label')).find(element => element.textContent.trim() === '异常重试次数')?.parentElement.querySelector('input')`;
+      assert.equal(await evaluate(`(${retryInput}).value`), '2');
+      await setInput(retryInput, '3');
+      await click('保存配置');
+      await wait(`document.body.textContent.includes('答题设置已更新')`);
+      const saveReq = requests.findLast(request => request.path === '/api/settings/answer');
+      assert.equal(saveReq.method, 'PUT');
+      assert.equal(saveReq.body.max_retries, 3);
+      assert.equal('system_prompt' in saveReq.body, false);
+      assert.equal('caption_prompt' in saveReq.body, false);
+    });
+
     await t.test('待处理详情自动完成并停止轮询', async () => {
       await navigate('/records');
       await wait(`document.querySelector('tbody tr')?.textContent.includes('等待处理的题目')`);
@@ -224,6 +262,19 @@ test('服务设置、记录详情与看板回归', { timeout: 30000 }, async t =
         assert.ok(box.left >= -1 && box.right <= width + 1 && box.width <= width, JSON.stringify({ viewport: width, ...box }));
       }
       await call('Emulation.clearDeviceMetricsOverride');
+    });
+
+    await t.test('重试记录在列表与详情中展示完整尝试过程', async () => {
+      await evaluate(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
+      await wait(`!document.querySelector('[role="dialog"]')`);
+      const secondRow = await evaluate(`document.querySelectorAll('tbody tr')[1]?.textContent || ''`);
+      assert.ok(secondRow.includes('判断题') && secondRow.includes('重试 1 次'), secondRow);
+      await evaluate(`document.querySelectorAll('tbody tr')[1].click()`);
+      await wait(`document.querySelector('[role="dialog"]')?.textContent.includes('作答与重试记录')`);
+      const dialogText = await evaluate(`document.querySelector('[role="dialog"]').textContent`);
+      assert.ok(dialogText.includes('不能输出选项字母'), dialogText);
+      assert.ok(dialogText.includes('<answer>A</answer>'), dialogText);
+      assert.ok(dialogText.includes('采纳答案：对'), dialogText);
     });
 
     await t.test('看板只请求一次统计数据', async () => {

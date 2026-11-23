@@ -103,7 +103,7 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 		request.Type = "single"
 	}
 	switch request.Type {
-	case "single", "multiple", "judgement", "completion":
+	case "single", "multiple", "judgement", "completion", "unknown":
 	default:
 		jsonError(w, http.StatusBadRequest, errors.New("题目类型无效"))
 		return

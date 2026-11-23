@@ -24,6 +24,19 @@ import { Card } from '@/components/ui/card';
 import { Clock, HelpCircle, Bot, AlertCircle, CheckCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
+interface AttemptRecord {
+  attempt: number;
+  stage: string;
+  model: string;
+  status: string;
+  answer?: string;
+  raw_content?: string;
+  reasoning?: string;
+  error?: string;
+  latency_ms: number;
+  timestamp: string;
+}
+
 interface RecordSummary {
   id: number;
   timestamp: string;
@@ -32,6 +45,7 @@ interface RecordSummary {
   processed_title: string;
   answer: string;
   total_time_ms: number;
+  retry_count?: number;
 }
 
 interface RecordItem extends RecordSummary {
@@ -45,6 +59,7 @@ interface RecordItem extends RecordSummary {
   caption_model: string;
   vision: boolean;
   agent_error?: string;
+  attempts?: AttemptRecord[];
   calls?: Array<{
     id: number;
     slot: string;
@@ -66,10 +81,56 @@ interface RecordsResponse {
   pages: number;
 }
 
+function questionTypeLabel(type: string) {
+  switch (type) {
+    case 'single':
+      return '单选题';
+    case 'multiple':
+      return '多选题';
+    case 'judgement':
+      return '判断题';
+    case 'completion':
+      return '填空题';
+    case 'unknown':
+      return '未知';
+    default:
+      return type || '未知';
+  }
+}
+
 function callSlotLabel(slot: string) {
   if (slot === 'caption') return '图片转述';
   if (slot === 'agent') return 'Agent';
+  if (slot === 'retry') return '重试';
   return '回答';
+}
+
+function attemptStageLabel(stage: string) {
+  if (stage === 'agent') return 'Agent';
+  if (stage === 'retry') return '重试';
+  return '回答';
+}
+
+function attemptStatusInfo(status: string) {
+  if (status === 'ok') {
+    return {
+      label: '通过',
+      variant: 'secondary' as const,
+      className: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-400',
+    };
+  }
+  if (status === 'invalid') {
+    return {
+      label: '格式不符',
+      variant: 'outline' as const,
+      className: 'border-amber-300 text-amber-700 dark:border-amber-800 dark:text-amber-400',
+    };
+  }
+  return {
+    label: '调用失败',
+    variant: 'destructive' as const,
+    className: '',
+  };
 }
 
 export default function Records() {
@@ -141,17 +202,24 @@ export default function Records() {
                     </TableCell>
                     <TableCell className="py-3">
                       <Badge variant="outline" className="bg-slate-50 dark:bg-slate-800 text-xs font-normal">
-                        {record.type || '未知'}
+                        {questionTypeLabel(record.type)}
                       </Badge>
                     </TableCell>
                     <TableCell className="py-3">
-                      <div className="max-w-[200px] truncate text-sm">
+                      <div className="flex items-center gap-1.5 max-w-[240px] text-sm">
                         {record.status === 'pending' ? (
                           <span className="text-muted-foreground italic text-xs">处理中...</span>
                         ) : (
-                          <Badge variant={isError ? 'destructive' : 'secondary'} className={`font-normal ${!isError ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-400 hover:bg-emerald-100' : ''}`}>
-                            {record.answer || '未返回有效答案'}
-                          </Badge>
+                          <>
+                            <Badge variant={isError ? 'destructive' : 'secondary'} className={`truncate font-normal ${!isError ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-400 hover:bg-emerald-100' : ''}`}>
+                              {record.answer || '未返回有效答案'}
+                            </Badge>
+                            {record.retry_count && record.retry_count > 0 ? (
+                              <Badge variant="outline" className="shrink-0 text-[10px] font-normal border-amber-300 text-amber-700 dark:border-amber-800 dark:text-amber-400">
+                                重试 {record.retry_count} 次
+                              </Badge>
+                            ) : null}
+                          </>
                         )}
                       </div>
                     </TableCell>
@@ -269,22 +337,64 @@ export default function Records() {
                     </div>
                   )}
 
+                  {/* 作答与重试记录 */}
+                  {detailData.attempts && (detailData.attempts.length > 1 || detailData.attempts.some(item => item.status !== 'ok')) && (
+                    <div className="space-y-2">
+                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">作答与重试记录</h4>
+                      <div className="space-y-2">
+                        {detailData.attempts.map((attempt) => {
+                          const statusInfo = attemptStatusInfo(attempt.status);
+                          return (
+                            <div key={attempt.attempt} className="space-y-2 p-3 rounded-lg bg-muted/30 border border-border/30 text-xs">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium text-foreground">第 {attempt.attempt} 次</span>
+                                  <Badge variant="outline" className="font-normal">{attemptStageLabel(attempt.stage)}</Badge>
+                                  <Badge variant={statusInfo.variant} className={`font-normal ${statusInfo.className}`}>
+                                    {statusInfo.label}
+                                  </Badge>
+                                </div>
+                                <span className="text-muted-foreground">{attempt.latency_ms} ms</span>
+                              </div>
+                              {attempt.error && (
+                                <p className="text-destructive break-words leading-relaxed">{attempt.error}</p>
+                              )}
+                              {attempt.status === 'ok' && attempt.answer && (
+                                <p className="text-emerald-700 dark:text-emerald-400 font-medium break-words">采纳答案：{attempt.answer}</p>
+                              )}
+                              {attempt.status !== 'ok' && attempt.raw_content && (
+                                <pre className="p-2 rounded bg-muted/60 text-[11px] text-muted-foreground whitespace-pre-wrap break-all font-mono">
+                                  {attempt.raw_content}
+                                </pre>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
                   {/* 模型调用 */}
                   {detailData.calls && detailData.calls.length > 0 && (
                     <div className="space-y-2">
                       <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">模型调用</h4>
                       <div className="space-y-2">
                         {detailData.calls.map((call) => (
-                          <div key={call.id} className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-lg bg-muted/30 border border-border/30 text-xs">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <Badge variant="outline" className="font-normal shrink-0">{callSlotLabel(call.slot)}</Badge>
-                              <span className="font-mono text-muted-foreground truncate">{call.model}</span>
+                          <div key={call.id} className="space-y-1.5 p-3 rounded-lg bg-muted/30 border border-border/30 text-xs">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <Badge variant="outline" className="font-normal shrink-0">{callSlotLabel(call.slot)}</Badge>
+                                <span className="font-mono text-muted-foreground truncate">{call.model}</span>
+                              </div>
+                              <div className="flex items-center gap-3 text-muted-foreground shrink-0">
+                                <span title="输入 / 输出 token">{call.prompt_tokens} / {call.completion_tokens}</span>
+                                <span>{call.latency_ms} ms</span>
+                                {call.status === 'error' && <span className="text-destructive">失败</span>}
+                              </div>
                             </div>
-                            <div className="flex items-center gap-3 text-muted-foreground shrink-0">
-                              <span title="输入 / 输出 token">{call.prompt_tokens} / {call.completion_tokens}</span>
-                              <span>{call.latency_ms} ms</span>
-                              {call.status === 'error' && <span className="text-destructive">失败</span>}
-                            </div>
+                            {call.status === 'error' && call.error && (
+                              <p className="text-destructive break-words leading-relaxed">{call.error}</p>
+                            )}
                           </div>
                         ))}
                       </div>

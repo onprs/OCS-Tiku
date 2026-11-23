@@ -13,8 +13,8 @@ import (
 )
 
 // runAgent 让 agent 分步推理并调用工具完成作答，返回最终输出文本与思考内容。
-// messages 中的用户消息由调用方提供，系统提示词取自配置的答题提示词。
-func (s *Solver) runAgent(ctx context.Context, cfg fileConfig, service ServiceConfig, messages []chatMessage) (string, string, error) {
+// messages 中的用户消息与按题型构造的系统提示词均由调用方提供。
+func (s *Solver) runAgent(ctx context.Context, cfg fileConfig, service ServiceConfig, systemPrompt string, messages []chatMessage) (string, string, error) {
 	base, err := s.models.newChatModel(ctx, service, cfg.Answer.Answer, cfg.Answer.Temperature, 0)
 	if err != nil {
 		return "", "", modelError(err)
@@ -29,7 +29,7 @@ func (s *Solver) runAgent(ctx context.Context, cfg fileConfig, service ServiceCo
 	}
 	agent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
 		Name:          "答题助手",
-		Instruction:   cfg.Answer.SystemPrompt,
+		Instruction:   systemPrompt,
 		Model:         chatModel,
 		MaxIterations: cfg.Answer.Agent.MaxIterations,
 		ToolsConfig: adk.ToolsConfig{
